@@ -1,0 +1,42 @@
+from fastapi import FastAPI, Request
+from linebot.v3.messaging import MessagingApi, Configuration, ApiClient
+from linebot.v3.messaging.models import TextMessage, ReplyMessageRequest
+from linebot.v3.webhook import WebhookHandler
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+import os
+
+app = FastAPI()
+
+CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+
+configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
+
+
+@app.get("/")
+def home():
+    return {"status": "LINE Bot is running"}
+
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    body = await request.body()
+    signature = request.headers.get("X-Line-Signature", "")
+
+    handler.handle(body.decode("utf-8"), signature)
+    return "OK"
+
+
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_text(event):
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[
+                    TextMessage(text="ได้รับข้อความแล้วครับ")
+                ]
+            )
+        )
