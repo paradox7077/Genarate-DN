@@ -1,29 +1,37 @@
-import streamlit as st
-import fitz
-import tempfile
 import json
 from pathlib import Path
 
-st.set_page_config(page_title="DN Header Replacer", layout="centered")
+import streamlit as st
 
-ADMIN_PASSWORD = "7077"
+from converter import convert_pdf_file, load_config
+from database import get_next_job_no, create_job
+
+
+st.set_page_config(
+    page_title="EGGMall Document Converter",
+    page_icon="📄",
+    layout="centered"
+)
+
+# ซ่อนเมนู Streamlit มุมขวาบน + footer
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
 
 CONFIG_PATH = Path("config.json")
 TEMPLATE_PATH = Path("ShippingForm.pdf")
+UPLOAD_DIR = Path("uploads")
+OUTPUT_DIR = Path("outputs")
 
+ADMIN_PASSWORD = "7077"
 
-def load_config():
-    default_config = {
-        "header_height_cm": 4.5,
-        "erase_height_cm": 8.0,
-        "header_y_cm": 0.0
-    }
-
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    return default_config
+UPLOAD_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def save_config(config):
@@ -31,128 +39,108 @@ def save_config(config):
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 
-def convert_pdf(uploaded_pdf, config):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-        temp_file.write(uploaded_pdf.read())
-        input_pdf_path = temp_file.name
+def main():
+    config = load_config(CONFIG_PATH)
 
-    cm_to_point = 28.3465
+    st.title("EGGMall Document Converter")
+    st.write("Upload PDF เพื่อเปลี่ยนหัวเอกสารอัตโนมัติ")
 
-    header_height = config["header_height_cm"] * cm_to_point
-    erase_height = config["erase_height_cm"] * cm_to_point
-    header_y = config["header_y_cm"] * cm_to_point
+    if not TEMPLATE_PATH.exists():
+        st.error("ไม่พบไฟล์ ShippingForm.pdf")
+        st.stop()
 
-    customer_doc = fitz.open(input_pdf_path)
-    template_doc = fitz.open(str(TEMPLATE_PATH))
+    uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
 
-    customer_page = customer_doc[0]
-    template_page = template_doc[0]
+    if uploaded_pdf:
+        if st.button("Convert PDF", type="primary"):
+            try:
+                job_no = get_next_job_no()
 
-    page_width = customer_page.rect.width
+                input_path = UPLOAD_DIR / f"{job_no}_Source.pdf"
+                output_path = OUTPUT_DIR / f"{job_no}.pdf"
 
-    erase_rect = fitz.Rect(0, 0, page_width, erase_height)
-    customer_page.draw_rect(
-        erase_rect,
-        color=(1, 1, 1),
-        fill=(1, 1, 1),
-        overlay=True
-    )
+                with open(input_path, "wb") as f:
+                    f.write(uploaded_pdf.read())
 
-    target_rect = fitz.Rect(
-        0,
-        header_y,
-        page_width,
-        header_y + header_height
-    )
+                convert_pdf_file(
+                    input_pdf_path=input_path,
+                    output_pdf_path=output_path,
+                    config_path=CONFIG_PATH,
+                    template_path=TEMPLATE_PATH
+                )
 
-    source_rect = fitz.Rect(
-        0,
-        0,
-        template_page.rect.width,
-        header_height
-    )
+                create_job(
+                    job_no=job_no,
+                    original_file_name=uploaded_pdf.name,
+                    upload_path=str(input_path),
+                    output_path=str(output_path),
+                    status="Success"
+                )
 
-    customer_page.show_pdf_page(
-        target_rect,
-        template_doc,
-        0,
-        clip=source_rect,
-        overlay=True
-    )
+                with open(output_path, "rb") as f:
+                    st.success(f"สร้างไฟล์สำเร็จ: {job_no}.pdf")
+                    st.download_button(
+                        label="Download PDF",
+                        data=f,
+                        file_name=f"{job_no}.pdf",
+                        mime="application/pdf"
+                    )
 
-    output_path = "converted_dn.pdf"
-    customer_doc.save(output_path)
-    customer_doc.close()
-    template_doc.close()
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาด: {str(e)}")
 
-    return output_path
+    st.divider()
 
+    with st.expander("Admin"):
+        password = st.text_input("Password", type="password")
 
-config = load_config()
+        if password == ADMIN_PASSWORD:
+            st.success("Admin mode")
 
-st.title("Delivery Note Header Replacer")
-st.write("Upload PDF แล้วระบบจะเปลี่ยนหัวบิลให้อัตโนมัติ")
-
-if not TEMPLATE_PATH.exists():
-    st.error("ไม่พบไฟล์ ShippingForm.pdf")
-    st.stop()
-
-uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
-
-if uploaded_pdf:
-    if st.button("Convert PDF", type="primary"):
-        output_path = convert_pdf(uploaded_pdf, config)
-
-        with open(output_path, "rb") as f:
-            st.success("สร้าง PDF สำเร็จ")
-            st.download_button(
-                label="Download PDF",
-                data=f,
-                file_name="converted_dn.pdf",
-                mime="application/pdf"
+            header_height_cm = st.slider(
+                "ความสูงหัวบริษัทที่นำมาวาง",
+                2.0,
+                10.0,
+                float(config.get("header_height_cm", 4.5)),
+                0.1
             )
 
-st.divider()
+            erase_height_cm = st.slider(
+                "ความสูงพื้นที่ลบหัวเดิม",
+                2.0,
+                15.0,
+                float(config.get("erase_height_cm", 8.0)),
+                0.1
+            )
 
-with st.expander("⚙ Admin"):
-    password = st.text_input("Password", type="password")
+            header_y_cm = st.slider(
+                "ขยับหัวบริษัทขึ้น/ลง",
+                -3.0,
+                3.0,
+                float(config.get("header_y_cm", 0.0)),
+                0.1
+            )
 
-    if password == ADMIN_PASSWORD:
-        st.success("Admin mode")
+            apply_mode = st.radio(
+                "ต้องการทับหัวบิลหน้าไหน",
+                ["หน้าแรกเท่านั้น", "ทุกหน้า"],
+                index=1 if config.get("apply_to_all_pages", False) else 0
+            )
 
-        header_height_cm = st.slider(
-            "ความสูงหัวบริษัทที่นำมาวาง",
-            2.0,
-            10.0,
-            float(config["header_height_cm"]),
-            0.1
-        )
+            if st.button("Save Setting"):
+                new_config = {
+                    "header_height_cm": header_height_cm,
+                    "erase_height_cm": erase_height_cm,
+                    "header_y_cm": header_y_cm,
+                    "apply_to_all_pages": apply_mode == "ทุกหน้า"
+                }
 
-        erase_height_cm = st.slider(
-            "ความสูงพื้นที่ลบหัวเดิม",
-            2.0,
-            15.0,
-            float(config["erase_height_cm"]),
-            0.1
-        )
+                save_config(new_config)
+                st.success("บันทึกค่าเรียบร้อยแล้ว กรุณา Refresh หน้าเว็บ 1 ครั้ง")
 
-        header_y_cm = st.slider(
-            "ขยับหัวบริษัทขึ้น/ลง",
-            -3.0,
-            3.0,
-            float(config["header_y_cm"]),
-            0.1
-        )
+        elif password:
+            st.error("Password ไม่ถูกต้อง")
 
-        if st.button("Save Setting"):
-            new_config = {
-                "header_height_cm": header_height_cm,
-                "erase_height_cm": erase_height_cm,
-                "header_y_cm": header_y_cm
-            }
 
-            save_config(new_config)
-            st.success("บันทึกค่าเรียบร้อย กรุณา Refresh หน้าเว็บ 1 ครั้ง")
-
-    elif password:
-        st.error("Password ไม่ถูกต้อง")
+if __name__ == "__main__":
+    main()
