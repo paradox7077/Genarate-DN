@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 from linebot.v3.messaging import (
     MessagingApi,
     MessagingApiBlob,
@@ -18,6 +19,7 @@ app = FastAPI()
 
 CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+BASE_URL = os.getenv("BASE_URL", "https://generate-dn-bot.onrender.com")
 
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -31,6 +33,20 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 @app.get("/")
 def home():
     return {"status": "LINE Bot is running"}
+
+
+@app.get("/download/{file_name}")
+def download_file(file_name: str):
+    file_path = OUTPUT_DIR / file_name
+
+    if not file_path.exists():
+        return {"error": "File not found"}
+
+    return FileResponse(
+        path=file_path,
+        filename=file_name,
+        media_type="application/pdf"
+    )
 
 
 @app.post("/webhook")
@@ -68,8 +84,10 @@ def handle_file(event):
 
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        input_path = DOWNLOAD_DIR / f"{timestamp}_{file_name}"
-        output_path = OUTPUT_DIR / f"converted_{timestamp}_{file_name}"
+        safe_file_name = file_name.replace(" ", "_")
+        input_path = DOWNLOAD_DIR / f"{timestamp}_{safe_file_name}"
+        output_file_name = f"converted_{timestamp}_{safe_file_name}"
+        output_path = OUTPUT_DIR / output_file_name
 
         with ApiClient(configuration) as api_client:
             blob_api = MessagingApiBlob(api_client)
@@ -85,14 +103,13 @@ def handle_file(event):
             template_path="ShippingForm.pdf"
         )
 
-        file_size_kb = output_path.stat().st_size / 1024
+        download_url = f"{BASE_URL}/download/{output_file_name}"
 
         reply_text(
             event.reply_token,
-            f"✅ แปลงไฟล์สำเร็จแล้วครับ\n"
-            f"ไฟล์: {output_path.name}\n"
-            f"ขนาด: {file_size_kb:.2f} KB\n\n"
-            f"ขั้นต่อไปคือทำลิงก์ดาวน์โหลด/ส่งไฟล์กลับ LINE"
+            f"✅ แปลงไฟล์สำเร็จแล้วครับ\n\n"
+            f"📄 ไฟล์: {output_file_name}\n"
+            f"📥 ดาวน์โหลดได้ที่:\n{download_url}"
         )
 
     except Exception as e:
