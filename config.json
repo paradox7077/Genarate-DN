@@ -7,5 +7,6 @@
   "header_y_cm": 0.0,
   "apply_to_all_pages": false,
   "google_drive_root_folder_id": "1clEnMkxkbVSxXWPJd9xclvQlcTSR2oaD",
-  "google_sheet_id": "1JGMlhSLu-ApzzqYZg2Yn9ihxK6wYCykuS9d8zM3Goo8"
+  "google_sheet_id": "1JGMIhSLu-ApzzqYZg2Yn9ihxK6wYCykuS9d8zM3Goo8",
+  "apps_script_url": "https://script.google.com/macros/s/AKfycbz4s2g1AmFlgJuL2DozlAMzg3BzCYxf4gC0oX1sitbfQ4P5_oMcZhAiXCqpGpHiK3wW/exec"
 }
