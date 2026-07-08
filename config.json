@@ -5,5 +5,7 @@
   "header_height_cm": 4.5,
   "erase_height_cm": 8.0,
   "header_y_cm": 0.0,
-  "apply_to_all_pages": false
+  "apply_to_all_pages": false,
+  "google_drive_root_folder_id": "1clEnMkxkbVSxXWPJd9xclvQlcTSR2oaD",
+  "google_sheet_id": "1JGMlhSLu-ApzzqYZg2Yn9ihxK6wYCykuS9d8zM3Goo8"
 }
