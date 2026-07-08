@@ -4,7 +4,8 @@ from pathlib import Path
 import streamlit as st
 
 from converter import convert_pdf_file, load_config
-from database import get_next_job_no, create_job
+from database import get_next_job_no, create_job, record_download
+from utils import build_date_folder
 
 
 st.set_page_config(
@@ -13,25 +14,20 @@ st.set_page_config(
     layout="centered"
 )
 
-# ซ่อนเมนู Streamlit มุมขวาบน + footer
 st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
+[data-testid="stToolbar"] {visibility: hidden;}
+[data-testid="stDecoration"] {visibility: hidden;}
+[data-testid="stStatusWidget"] {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 
 CONFIG_PATH = Path("config.json")
 TEMPLATE_PATH = Path("ShippingForm.pdf")
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("outputs")
-
-ADMIN_PASSWORD = "7077"
-
-UPLOAD_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def save_config(config):
@@ -54,10 +50,13 @@ def main():
     if uploaded_pdf:
         if st.button("Convert PDF", type="primary"):
             try:
-                job_no = get_next_job_no()
+                job_no = get_next_job_no(config.get("file_prefix", "EG"))
 
-                input_path = UPLOAD_DIR / f"{job_no}_Source.pdf"
-                output_path = OUTPUT_DIR / f"{job_no}.pdf"
+                upload_dir = build_date_folder("uploads")
+                output_dir = build_date_folder("outputs")
+
+                input_path = upload_dir / f"{job_no}_Source.pdf"
+                output_path = output_dir / f"{job_no}.pdf"
 
                 with open(input_path, "wb") as f:
                     f.write(uploaded_pdf.read())
@@ -79,12 +78,14 @@ def main():
 
                 with open(output_path, "rb") as f:
                     st.success(f"สร้างไฟล์สำเร็จ: {job_no}.pdf")
-                    st.download_button(
+
+                    if st.download_button(
                         label="Download PDF",
                         data=f,
                         file_name=f"{job_no}.pdf",
                         mime="application/pdf"
-                    )
+                    ):
+                        record_download(job_no)
 
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาด: {str(e)}")
@@ -94,8 +95,25 @@ def main():
     with st.expander("Admin"):
         password = st.text_input("Password", type="password")
 
-        if password == ADMIN_PASSWORD:
+        if password == config.get("admin_password", "7077"):
             st.success("Admin mode")
+
+            company_name = st.text_input(
+                "Company Name",
+                value=config.get("company_name", "EGGMall")
+            )
+
+            file_prefix = st.text_input(
+                "File Prefix",
+                value=config.get("file_prefix", "EG"),
+                max_chars=5
+            )
+
+            admin_password = st.text_input(
+                "Admin Password",
+                value=config.get("admin_password", "7077"),
+                type="password"
+            )
 
             header_height_cm = st.slider(
                 "ความสูงหัวบริษัทที่นำมาวาง",
@@ -129,6 +147,9 @@ def main():
 
             if st.button("Save Setting"):
                 new_config = {
+                    "company_name": company_name,
+                    "file_prefix": file_prefix.upper().strip() or "EG",
+                    "admin_password": admin_password,
                     "header_height_cm": header_height_cm,
                     "erase_height_cm": erase_height_cm,
                     "header_y_cm": header_y_cm,
