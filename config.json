@@ -1,5 +1,9 @@
 {
+  "company_name": "EGGMall",
+  "file_prefix": "EG",
+  "admin_password": "7077",
   "header_height_cm": 4.5,
   "erase_height_cm": 8.0,
-  "header_y_cm": 0.0
+  "header_y_cm": 0.0,
+  "apply_to_all_pages": false
 }
