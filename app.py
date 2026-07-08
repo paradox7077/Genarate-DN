@@ -3,9 +3,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from converter import convert_pdf_file, load_config
-from database import get_next_job_no, create_job, record_download
-from utils import build_date_folder
+from converter import load_config
+from document_service import process_document
 
 
 st.set_page_config(
@@ -50,42 +49,33 @@ def main():
     if uploaded_pdf:
         if st.button("Convert PDF", type="primary"):
             try:
-                job_no = get_next_job_no(config.get("file_prefix", "EG"))
+                with st.status("กำลังดำเนินการ...", expanded=True) as status:
+                    st.write("📥 กำลังรับไฟล์ต้นฉบับ...")
+                    st.write("☁️ กำลังบันทึกไฟล์ต้นฉบับลง Google Drive...")
+                    st.write("🧾 กำลังแปลงเอกสาร...")
+                    st.write("☁️ กำลังบันทึกไฟล์ผลลัพธ์ลง Google Drive...")
+                    st.write("📊 กำลังบันทึกข้อมูลลง Google Sheet...")
 
-                upload_dir = build_date_folder("uploads")
-                output_dir = build_date_folder("outputs")
+                    result = process_document(
+                        uploaded_file=uploaded_pdf,
+                        config_path=CONFIG_PATH,
+                        template_path=TEMPLATE_PATH,
+                        source="Web"
+                    )
 
-                input_path = upload_dir / f"{job_no}_Source.pdf"
-                output_path = output_dir / f"{job_no}.pdf"
+                    status.update(label="ดำเนินการสำเร็จ", state="complete")
 
-                with open(input_path, "wb") as f:
-                    f.write(uploaded_pdf.read())
+                st.success(f"สร้างไฟล์สำเร็จ: {result['output_file_name']}")
 
-                convert_pdf_file(
-                    input_pdf_path=input_path,
-                    output_pdf_path=output_path,
-                    config_path=CONFIG_PATH,
-                    template_path=TEMPLATE_PATH
-                )
-
-                create_job(
-                    job_no=job_no,
-                    original_file_name=uploaded_pdf.name,
-                    upload_path=str(input_path),
-                    output_path=str(output_path),
-                    status="Success"
-                )
-
-                with open(output_path, "rb") as f:
-                    st.success(f"สร้างไฟล์สำเร็จ: {job_no}.pdf")
-
-                    if st.download_button(
+                with open(result["output_path"], "rb") as f:
+                    st.download_button(
                         label="Download PDF",
                         data=f,
-                        file_name=f"{job_no}.pdf",
+                        file_name=result["output_file_name"],
                         mime="application/pdf"
-                    ):
-                        record_download(job_no)
+                    )
+
+                st.info(f"Google Drive Folder: {result['folder_link']}")
 
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาด: {str(e)}")
@@ -147,6 +137,7 @@ def main():
 
             if st.button("Save Setting"):
                 new_config = {
+                    **config,
                     "company_name": company_name,
                     "file_prefix": file_prefix.upper().strip() or "EG",
                     "admin_password": admin_password,
