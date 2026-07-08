@@ -1,3 +1,4 @@
+from pathlib import Path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -10,6 +11,15 @@ SCOPES = [
 
 
 def get_credentials():
+    path = Path(SERVICE_ACCOUNT_FILE)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            "ไม่พบไฟล์ service_account.json ที่ /etc/secrets/service_account.json "
+            "กรุณาตรวจสอบ Render > Environment > Secret Files ว่ามีไฟล์ชื่อ service_account.json "
+            "และกด Save, rebuild, and deploy แล้ว"
+        )
+
     return service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE,
         scopes=SCOPES
