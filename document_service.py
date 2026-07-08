@@ -5,20 +5,13 @@ from tempfile import NamedTemporaryFile
 import requests
 
 from converter import convert_pdf_file, load_config
-from google_sheet import get_existing_job_numbers
 from utils import thai_now
 
 
-def generate_job_no(config, existing_jobs):
+def generate_base_job_no(config):
     prefix = config.get("file_prefix", "EG")
     now = thai_now()
-    base = f"{prefix}{now.strftime('%y%m%d%H%M')}"
-
-    running = 1
-    while f"{base}{running:03d}" in existing_jobs:
-        running += 1
-
-    return f"{base}{running:03d}"
+    return f"{prefix}{now.strftime('%y%m%d%H%M')}"
 
 
 def file_to_base64(file_path):
@@ -29,17 +22,13 @@ def file_to_base64(file_path):
 def process_document(uploaded_file, config_path="config.json", template_path="ShippingForm.pdf", source="Web"):
     config = load_config(config_path)
 
-    sheet_id = config["google_sheet_id"]
     apps_script_url = config["apps_script_url"]
-
-    existing_jobs = get_existing_job_numbers(sheet_id)
-    job_no = generate_job_no(config, existing_jobs)
+    base_job_no = generate_base_job_no(config)
 
     now = thai_now()
     upload_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
     original_file_name = uploaded_file.name
-    output_file_name = f"{job_no}.pdf"
 
     with NamedTemporaryFile(delete=False, suffix=".pdf") as source_temp:
         source_temp.write(uploaded_file.read())
@@ -58,9 +47,8 @@ def process_document(uploaded_file, config_path="config.json", template_path="Sh
     convert_time = thai_now().strftime("%Y-%m-%d %H:%M:%S")
 
     payload = {
-        "job_no": job_no,
+        "base_job_no": base_job_no,
         "original_file_name": original_file_name,
-        "output_file_name": output_file_name,
         "upload_time": upload_time,
         "convert_time": convert_time,
         "source": source,
@@ -79,8 +67,8 @@ def process_document(uploaded_file, config_path="config.json", template_path="Sh
         raise Exception(f"Apps Script Error: {result}")
 
     return {
-        "job_no": job_no,
-        "output_file_name": output_file_name,
+        "job_no": result.get("job_no", ""),
+        "output_file_name": result.get("output_file_name", ""),
         "output_path": output_temp_path,
         "folder_link": result.get("folder_link", ""),
         "source_link": result.get("source_link", ""),
