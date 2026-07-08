@@ -1,6 +1,6 @@
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from utils import thai_now, generate_prefix
 
 DB_PATH = Path("dn.db")
 
@@ -10,8 +10,8 @@ def init_db():
     cur = conn.cursor()
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS running_number (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+        CREATE TABLE IF NOT EXISTS running_numbers (
+            prefix TEXT PRIMARY KEY,
             last_number INTEGER NOT NULL
         )
     """)
@@ -29,38 +29,57 @@ def init_db():
     """)
 
     cur.execute("""
-        INSERT OR IGNORE INTO running_number (id, last_number)
-        VALUES (1, 0)
+        CREATE TABLE IF NOT EXISTS downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_no TEXT,
+            downloaded_at TEXT
+        )
     """)
 
     conn.commit()
     conn.close()
 
 
-def get_next_job_no():
+def get_next_job_no(file_prefix="EG"):
     init_db()
 
-    now = datetime.now()
-    prefix = now.strftime("EG%y%m%d%H%M")
+    prefix = generate_prefix(file_prefix)
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    cur.execute("SELECT last_number FROM running_number WHERE id = 1")
-    last_number = cur.fetchone()[0]
+    try:
+        cur.execute("BEGIN IMMEDIATE")
 
-    next_number = last_number + 1
+        cur.execute(
+            "SELECT last_number FROM running_numbers WHERE prefix = ?",
+            (prefix,)
+        )
+        row = cur.fetchone()
 
-    cur.execute(
-        "UPDATE running_number SET last_number = ? WHERE id = 1",
-        (next_number,)
-    )
+        if row is None:
+            next_number = 1
+            cur.execute(
+                "INSERT INTO running_numbers (prefix, last_number) VALUES (?, ?)",
+                (prefix, next_number)
+            )
+        else:
+            next_number = row[0] + 1
+            cur.execute(
+                "UPDATE running_numbers SET last_number = ? WHERE prefix = ?",
+                (next_number, prefix)
+            )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
-    running = f"{next_number:03d}"
-    return f"{prefix}{running}"
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+    return f"{prefix}{next_number:03d}"
 
 
 def create_job(job_no, original_file_name, upload_path, output_path, status="Success"):
@@ -85,7 +104,25 @@ def create_job(job_no, original_file_name, upload_path, output_path, status="Suc
         upload_path,
         output_path,
         status,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        thai_now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def record_download(job_no):
+    init_db()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO downloads (job_no, downloaded_at)
+        VALUES (?, ?)
+    """, (
+        job_no,
+        thai_now().strftime("%Y-%m-%d %H:%M:%S")
     ))
 
     conn.commit()
