@@ -5,6 +5,9 @@ import fitz
 
 def load_config(config_path="config.json"):
     default_config = {
+        "company_name": "EGGMall",
+        "file_prefix": "EG",
+        "admin_password": "7077",
         "header_height_cm": 4.5,
         "erase_height_cm": 8.0,
         "header_y_cm": 0.0,
@@ -12,6 +15,7 @@ def load_config(config_path="config.json"):
     }
 
     path = Path(config_path)
+
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -29,6 +33,7 @@ def apply_header_to_page(page, template_doc, header_height, erase_height, header
     page_width = page.rect.width
 
     erase_rect = fitz.Rect(0, 0, page_width, erase_height)
+
     page.draw_rect(
         erase_rect,
         color=(1, 1, 1),
@@ -68,6 +73,7 @@ def convert_pdf_file(
     config = load_config(config_path)
 
     cm_to_point = 28.3465
+
     header_height = config["header_height_cm"] * cm_to_point
     erase_height = config["erase_height_cm"] * cm_to_point
     header_y = config["header_y_cm"] * cm_to_point
