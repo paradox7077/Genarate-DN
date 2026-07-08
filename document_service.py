@@ -1,9 +1,11 @@
+import base64
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+import requests
+
 from converter import convert_pdf_file, load_config
-from google_drive import find_or_create_folder, upload_pdf
-from google_sheet import append_log, get_existing_job_numbers
+from google_sheet import get_existing_job_numbers
 from utils import thai_now
 
 
@@ -19,26 +21,24 @@ def generate_job_no(config, existing_jobs):
     return f"{base}{running:03d}"
 
 
+def file_to_base64(file_path):
+    with open(file_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
 def process_document(uploaded_file, config_path="config.json", template_path="ShippingForm.pdf", source="Web"):
     config = load_config(config_path)
 
-    root_folder_id = config["google_drive_root_folder_id"]
     sheet_id = config["google_sheet_id"]
+    apps_script_url = config["apps_script_url"]
 
     existing_jobs = get_existing_job_numbers(sheet_id)
     job_no = generate_job_no(config, existing_jobs)
 
     now = thai_now()
-    year = now.strftime("%Y")
-    month = now.strftime("%m")
-
-    jobs_folder = find_or_create_folder("Jobs", root_folder_id)
-    year_folder = find_or_create_folder(year, jobs_folder["id"])
-    month_folder = find_or_create_folder(month, year_folder["id"])
-    job_folder = find_or_create_folder(job_no, month_folder["id"])
+    upload_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
     original_file_name = uploaded_file.name
-    source_file_name = "Source.pdf"
     output_file_name = f"{job_no}.pdf"
 
     with NamedTemporaryFile(delete=False, suffix=".pdf") as source_temp:
@@ -48,12 +48,6 @@ def process_document(uploaded_file, config_path="config.json", template_path="Sh
     with NamedTemporaryFile(delete=False, suffix=".pdf") as output_temp:
         output_temp_path = Path(output_temp.name)
 
-    source_drive_file = upload_pdf(
-        file_path=source_temp_path,
-        file_name=source_file_name,
-        parent_id=job_folder["id"]
-    )
-
     convert_pdf_file(
         input_pdf_path=source_temp_path,
         output_pdf_path=output_temp_path,
@@ -61,34 +55,34 @@ def process_document(uploaded_file, config_path="config.json", template_path="Sh
         template_path=template_path
     )
 
-    output_drive_file = upload_pdf(
-        file_path=output_temp_path,
-        file_name=output_file_name,
-        parent_id=job_folder["id"]
-    )
-
-    upload_time = now.strftime("%Y-%m-%d %H:%M:%S")
     convert_time = thai_now().strftime("%Y-%m-%d %H:%M:%S")
 
-    append_log(sheet_id, [
-        job_no,
-        original_file_name,
-        output_file_name,
-        upload_time,
-        convert_time,
-        "",
-        source,
-        "Success",
-        job_folder.get("webViewLink", ""),
-        source_drive_file.get("webViewLink", ""),
-        output_drive_file.get("webViewLink", "")
-    ])
+    payload = {
+        "job_no": job_no,
+        "original_file_name": original_file_name,
+        "output_file_name": output_file_name,
+        "upload_time": upload_time,
+        "convert_time": convert_time,
+        "source": source,
+        "source_pdf_base64": file_to_base64(source_temp_path),
+        "output_pdf_base64": file_to_base64(output_temp_path),
+    }
+
+    response = requests.post(apps_script_url, json=payload, timeout=120)
+
+    try:
+        result = response.json()
+    except Exception:
+        raise Exception(f"Apps Script ไม่ได้ตอบกลับเป็น JSON: {response.text}")
+
+    if result.get("status") != "success":
+        raise Exception(f"Apps Script Error: {result}")
 
     return {
         "job_no": job_no,
         "output_file_name": output_file_name,
         "output_path": output_temp_path,
-        "folder_link": job_folder.get("webViewLink", ""),
-        "source_link": source_drive_file.get("webViewLink", ""),
-        "output_link": output_drive_file.get("webViewLink", "")
+        "folder_link": result.get("folder_link", ""),
+        "source_link": result.get("source_link", ""),
+        "output_link": result.get("output_link", "")
     }
